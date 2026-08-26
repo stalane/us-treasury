@@ -7,7 +7,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <style>
 :root {
-  --bg: #0d1420;
+  --bg: #000;
   --card: #121a28;
   --border: #1e2a3a;
   --text: #e6ecf5;
@@ -323,7 +323,7 @@ header .titles .sub {
 .cal-row:hover { background: rgba(79,156,247,0.08); }
 .cal-row .c-time { color: var(--muted); min-width: 44px; }
 .cal-row .c-date { color: var(--muted); min-width: 56px; }
-.cal-row a { color: var(--blue); text-decoration: none; }
+.cal-row a { color: var(--white); text-decoration: none; }
 .cal-row a:hover { text-decoration: underline; }
 #calendar-next7 { border-top: 1px solid var(--border); padding-top: 8px; }
 
@@ -465,6 +465,24 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
         </div>
         <div class="error-state">
           <p>Unable to load foreign exchange data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-auctions" data-state="loading">
+      <h2>Upcoming Treasury Auctions</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="table-wrap">
+          <table id="auctions-table">
+            <thead><tr><th>Security</th><th>Term</th><th>Offering</th><th>Auction Date</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="error-state">
+          <p>Unable to load upcoming auction data.</p>
           <button class="retry-btn" type="button">Retry</button>
         </div>
       </div>
@@ -877,6 +895,45 @@ async function loadFX() {
   }
 }
 
+async function loadAuctions() {
+  const panelId = "auctions";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v1/accounting/od/upcoming_auctions", { pageSize: 200 });
+    const today = isoDate(new Date());
+    const rows = j.data
+      .filter(r => r.auction_date && r.auction_date >= today)
+      .sort((a, b) => a.auction_date < b.auction_date ? -1 : 1)
+      .slice(0, 12);
+    if (!rows.length) throw new Error("no upcoming auctions");
+    const tbody = document.querySelector('#auctions-table tbody');
+    tbody.innerHTML = "";
+    for (const r of rows) {
+      const row = document.createElement("tr");
+      const cSec = document.createElement("td");
+      cSec.textContent = r.security_type || "—";
+      const cTerm = document.createElement("td");
+      cTerm.textContent = r.security_term || "—";
+      const cOffer = document.createElement("td");
+      const off = num(r.offering_amt);
+      cOffer.textContent = off != null ? fmtCompact(off) : "—";
+      const cDate = document.createElement("td");
+      cDate.textContent = fmtShortDate(r.auction_date);
+      row.appendChild(cSec);
+      row.appendChild(cTerm);
+      row.appendChild(cOffer);
+      row.appendChild(cDate);
+      tbody.appendChild(row);
+    }
+    document.querySelector('#panel-auctions .panel-asof').textContent = `next ${fmtShortDate(rows[0].auction_date)}`;
+    setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadAuctions;
+  }
+}
+
 const CAL_URL = "https://api.fiscaldata.treasury.gov/services/calendar/release";
 const META_URL = "https://api.fiscaldata.treasury.gov/services/dtg/metadata/";
 const CAL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -1113,7 +1170,7 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   });
 });
 
-const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadCalendar];
+const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadAuctions, loadCalendar];
 
 let refreshing = false;
 
