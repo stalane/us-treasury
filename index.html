@@ -162,6 +162,7 @@ header .titles .sub {
 .panel[data-state="error"] .skeleton { display: none; }
 .panel[data-state="error"] .chart-wrap,
 .panel[data-state="error"] .table-wrap { display: none; }
+.panel[data-state="error"] .error-state { display: block; }
 #panel-calendar { grid-column: 1 / -1; }
 
 .panel h2 {
@@ -552,10 +553,8 @@ function setPanelState(panelId, state) {
   var panel = document.getElementById("panel-" + panelId);
   if (!panel) return;
   panel.setAttribute("data-state", state);
-  var body = panel.querySelector(".panel-body");
   var err = panel.querySelector(".error-state");
   if (err) err.style.display = state === "error" ? "" : "none";
-  if (body) body.classList.toggle("skeleton-active", state === "loading");
 }
 
 function makeChart(canvasId, type, data, opts) {
