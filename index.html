@@ -735,6 +735,32 @@ function monthIndex(name) {
   return ["October","November","December","January","February","March","April","May","June","July","August","September"].indexOf(name);
 }
 
+async function loadRates() {
+  const panelId = "rates";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v2/accounting/od/avg_interest_rates", { sort: "-record_date", pageSize: 250 });
+    const rows = j.data;
+    // most recent date first; build ascending by date
+    rows.reverse();
+    const securities = ["Treasury Bills", "Treasury Notes", "Treasury Bonds",
+      "Treasury Inflation-Protected Securities", "Floating Rate Notes"];
+    const labels = [...new Set(rows.map(r => r.record_date))].slice(-24);
+    const palette = ["#4f9cf7", "#2ecc8f", "#ff5a5f", "#f7b32b", "#a78bfa"];
+    const datasets = securities.map((sec, i) => {
+      const byDate = new Map(rows.filter(r => r.security_desc === sec).map(r => [r.record_date, num(r.avg_interest_rate_amt)]));
+      return { label: sec.replace("Treasury ", ""), data: labels.map(d => byDate.get(d) ?? null),
+               borderColor: palette[i], pointRadius: 0, tension: 0.3, spanGaps: true };
+    });
+    makeChart("chart-rates", "line", { labels, datasets });
+    document.querySelector('#panel-rates .panel-asof').textContent = `as of ${labels[labels.length-1]}`;
+    setPanelState(panelId, "ready");
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadRates;
+  }
+}
+
 document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   btn.addEventListener("click", function () {
     document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
@@ -745,6 +771,7 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
 
 loadDebt();
 loadMTS();
+loadRates();
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
