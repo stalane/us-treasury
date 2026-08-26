@@ -761,6 +761,47 @@ async function loadRates() {
   }
 }
 
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+async function loadCash() {
+  const panelId = "cash";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v1/accounting/dts/deposits_withdrawals_operating_cash",
+      { filter: `record_date:gte:${isoDaysAgo(90)}`, pageSize: 10000 });
+    const perDay = new Map();
+    for (const r of j.data) {
+      const amt = num(r.transaction_today_amt);
+      if (amt == null) continue;
+      const sign = r.transaction_type === "Deposits" ? 1 : -1;
+      perDay.set(r.record_date, (perDay.get(r.record_date) || 0) + amt);
+    }
+    const days = [...perDay.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+    const labels = days.map(d => d[0]);
+    const net = days.map(d => d[1] * 1e6);          // daily net change in dollars
+    let run = 0;
+    const cum = days.map(d => (run += d[1] * 1e6)); // cumulative net change (indexed to 0 at window start)
+    makeChart("chart-cash", "bar", {
+      labels,
+      datasets: [
+        { label: "Daily net change", data: net, backgroundColor: net.map(v => v >= 0 ? "rgba(46,204,143,0.7)" : "rgba(255,90,95,0.7)") },
+        { label: "Cumulative net change", data: cum, type: "line", borderColor: "#f7b32b", pointRadius: 0, tension: 0.3 },
+      ],
+    });
+    const lastNet = net[net.length - 1];
+    setKpi("kpi-cash-net", lastNet, null, `Latest daily net change (${labels[labels.length-1]})`, labels[labels.length-1]);
+    document.querySelector('#panel-cash .panel-asof').textContent = `as of ${labels[labels.length-1]}`;
+    setPanelState(panelId, "ready");
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadCash;
+  }
+}
+
 document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   btn.addEventListener("click", function () {
     document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
@@ -772,6 +813,7 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
 loadDebt();
 loadMTS();
 loadRates();
+loadCash();
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
