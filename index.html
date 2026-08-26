@@ -709,7 +709,7 @@ async function loadMTS() {
     const ytd = rows.find(r => r.parent_id === fid && r.classification_desc === "Year-to-Date");
     // KPI
     const dfct = num(ytd.current_month_dfct_sur_amt);
-    setKpi("kpi-fy-deficit", dfct, null, `FY ${fy} Year-to-Date ${dfct < 0 ? "Deficit" : "Surplus"}`, latest);
+    setKpi("kpi-fy-deficit", dfct, null, `FY ${fy} Year-to-Date ${dfct > 0 ? "Deficit" : "Surplus"}`, latest);
     // Chart
     const labels = months.map(r => r.classification_desc);
     const rcpts = months.map(r => num(r.current_month_gross_rcpt_amt));
