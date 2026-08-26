@@ -393,6 +393,11 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
 
     <section class="panel" id="panel-debt" data-state="loading">
       <h2>National Debt</h2>
+      <div class="toggle-group" id="debt-toggle">
+        <button type="button" data-series="total" class="active">Total</button>
+        <button type="button" data-series="public">Public</button>
+        <button type="button" data-series="intra">Intra</button>
+      </div>
       <span class="panel-asof">as of —</span>
       <div class="panel-body">
         <div class="skeleton"></div>
@@ -586,6 +591,112 @@ function makeChart(canvasId, type, data, opts) {
   Object.assign(options, opts);
   return new Chart(ctx, { type: type, data: data, options: options });
 }
+
+var DEBT_COLORS = { total: "#4f9cf7", public: "#2ecc8f", intra: "#a78bfa" };
+var DEBT_LABELS = {
+  total: "Total Public Debt Outstanding",
+  public: "Debt Held by the Public",
+  intra: "Intragovernmental Holdings"
+};
+
+function setKpi(id, value, delta, label, date) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var val = el.querySelector(".kpi-value");
+  var dlt = el.querySelector(".kpi-delta");
+  var lbl = el.querySelector(".kpi-label");
+  var dt = el.querySelector(".kpi-date");
+  if (val) val.textContent = fmtCompact(value);
+  if (lbl) lbl.textContent = label;
+  if (dt) dt.textContent = "as of " + date;
+  if (dlt) {
+    dlt.className = "kpi-delta";
+    if (delta == null) {
+      dlt.textContent = "";
+      dlt.classList.add("flat");
+    } else if (delta >= 0) {
+      dlt.textContent = "\u25B2 +" + fmtCompact(Math.abs(delta));
+      dlt.classList.add("up");
+    } else {
+      dlt.textContent = "\u25BC -" + fmtCompact(Math.abs(delta));
+      dlt.classList.add("down");
+    }
+  }
+}
+
+function renderDebtChart(which) {
+  var s = window.debtSeries;
+  if (!s) return;
+  if (window.chartDebt) {
+    window.chartDebt.destroy();
+    window.chartDebt = null;
+  }
+  var ctx = document.getElementById("chart-debt");
+  if (!ctx) return;
+  var color = DEBT_COLORS[which] || DEBT_COLORS.total;
+  var grad = ctx.getContext("2d").createLinearGradient(0, 0, 0, 280);
+  grad.addColorStop(0, color + "55");
+  grad.addColorStop(1, color + "00");
+  window.chartDebt = makeChart("chart-debt", "line", {
+    labels: s.labels,
+    datasets: [{
+      label: DEBT_LABELS[which] || DEBT_LABELS.total,
+      data: s[which] || [],
+      borderColor: color,
+      backgroundColor: grad,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2
+    }]
+  }, {
+    scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
+  });
+}
+
+async function loadDebt() {
+  const panelId = "debt";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v2/accounting/od/debt_to_penny",
+      { sort: "-record_date", pageSize: 400 });
+    const rows = j.data.map(r => ({
+      date: r.record_date,
+      total: num(r.tot_pub_debt_out_amt),
+      public: num(r.debt_held_public_amt),
+      intra: num(r.intragov_hold_amt),
+    })).filter(r => r.total != null);
+    rows.reverse(); // API returns newest-first; restore ascending so the rest of this fn is date-ordered
+    const latest = rows[rows.length - 1];
+    const prev = rows[rows.length - 2];
+    // KPI deltas
+    setKpi("kpi-debt-total", latest.total, latest.total - prev.total, "Total Public Debt Outstanding", latest.date);
+    setKpi("kpi-debt-public", latest.public, latest.public - prev.public, "Debt Held by the Public", latest.date);
+    // 12-month window for chart
+    const start = new Date(new Date(latest.date).setMonth(new Date(latest.date).getMonth() - 12));
+    const slice = rows.filter(r => new Date(r.date) >= start);
+    const labels = slice.map(r => r.date);
+    // toggleable series
+    window.debtSeries = { labels, total: slice.map(r => r.total), public: slice.map(r => r.public), intra: slice.map(r => r.intra) };
+    renderDebtChart("total");
+    window.debtLatestDate = latest.date;
+    document.querySelector('#panel-debt .panel-asof').textContent = `as of ${latest.date}`;
+    setPanelState(panelId, "ready");
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadDebt;
+  }
+}
+
+document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    renderDebtChart(btn.getAttribute("data-series"));
+  });
+});
+
+loadDebt();
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
