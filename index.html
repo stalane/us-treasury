@@ -688,6 +688,53 @@ async function loadDebt() {
   }
 }
 
+function currentFiscalYear(dateStr) {
+  const [y, m] = dateStr.split("-").map(Number);
+  return m >= 10 ? y + 1 : y;
+}
+
+async function loadMTS() {
+  const panelId = "mts";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v1/accounting/mts/mts_table_1", { sort: "-record_date", pageSize: 200 });
+    const rows = j.data;
+    const latest = rows[0].record_date;
+    const fy = currentFiscalYear(latest);
+    const fyRow = rows.find(r => r.parent_id === "null" && r.classification_desc === `FY ${fy}`);
+    if (!fyRow) throw new Error("no FY block");
+    const fid = fyRow.classification_id;
+    const months = rows.filter(r => r.parent_id === fid && r.record_type_cd === "MTH")
+                       .sort((a, b) => monthIndex(a.classification_desc) - monthIndex(b.classification_desc));
+    const ytd = rows.find(r => r.parent_id === fid && r.classification_desc === "Year-to-Date");
+    // KPI
+    const dfct = num(ytd.current_month_dfct_sur_amt);
+    setKpi("kpi-fy-deficit", dfct, null, `FY ${fy} Year-to-Date ${dfct < 0 ? "Deficit" : "Surplus"}`, latest);
+    // Chart
+    const labels = months.map(r => r.classification_desc);
+    const rcpts = months.map(r => num(r.current_month_gross_rcpt_amt));
+    const outly = months.map(r => num(r.current_month_gross_outly_amt));
+    const dft   = months.map(r => num(r.current_month_dfct_sur_amt));
+    makeChart("chart-mts", "bar", {
+      labels,
+      datasets: [
+        { label: "Receipts", data: rcpts, backgroundColor: "#2ecc8f" },
+        { label: "Outlays",  data: outly, backgroundColor: "#ff5a5f" },
+        { label: "Deficit / Surplus", data: dft, type: "line", borderColor: "#f7b32b", pointRadius: 2 },
+      ],
+    });
+    document.querySelector('#panel-mts .panel-asof').textContent = `as of ${latest}`;
+    setPanelState(panelId, "ready");
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadMTS;
+  }
+}
+
+function monthIndex(name) {
+  return ["October","November","December","January","February","March","April","May","June","July","August","September"].indexOf(name);
+}
+
 document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   btn.addEventListener("click", function () {
     document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
@@ -697,6 +744,7 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
 });
 
 loadDebt();
+loadMTS();
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
