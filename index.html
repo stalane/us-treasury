@@ -802,6 +802,51 @@ async function loadCash() {
   }
 }
 
+const FX_CURRENCIES = ["EUR", "GBP", "JPY", "CNY", "CAD", "CHF", "AUD", "MXN", "INR"];
+const FX_COUNTRY = {
+  "Euro Zone": "EUR", "United Kingdom": "GBP", "Japan": "JPY", "China": "CNY",
+  "Canada": "CAD", "Switzerland": "CHF", "Australia": "AUD", "Mexico": "MXN", "India": "INR"
+};
+
+async function loadFX() {
+  const panelId = "fx";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v1/accounting/od/rates_of_exchange",
+      { filter: "country:in:(Euro Zone,United Kingdom,Japan,China,Canada,Switzerland,Australia,Mexico,India)", sort: "-record_date", pageSize: 500 });
+    const rows = j.data; // desc by date; reverse for asc
+    rows.reverse();
+    const labels = [...new Set(rows.map(r => r.record_date))].slice(-12);
+    const byCur = new Map();
+    for (const r of rows) {
+      const cur = FX_COUNTRY[r.country] || r.currency;
+      if (!byCur.has(cur)) byCur.set(cur, new Map());
+      byCur.get(cur).set(r.record_date, num(r.exchange_rate));
+    }
+    const palette = ["#4f9cf7", "#2ecc8f", "#ff5a5f", "#f7b32b", "#a78bfa", "#22d3ee", "#f472b6", "#fbbf24", "#94a3b8"];
+    const datasets = [...byCur.entries()].map(([cur, m], i) => ({
+      label: cur, data: labels.map(d => m.get(d) ?? null),
+      borderColor: palette[i % palette.length], pointRadius: 0, tension: 0.3, spanGaps: true,
+    }));
+    makeChart("chart-fx", "line", { labels, datasets });
+    // Table of latest values
+    const latest = labels[labels.length - 1];
+    const tbody = document.querySelector('#fx-table tbody');
+    tbody.innerHTML = "";
+    for (const [cur, m] of byCur) {
+      const v = m.get(latest);
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${cur}</td><td>${v != null ? v.toFixed(4) : "—"}</td><td>${latest}</td>`;
+      tbody.appendChild(row);
+    }
+    document.querySelector('#panel-fx .panel-asof').textContent = `as of ${latest}`;
+    setPanelState(panelId, "ready");
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadFX;
+  }
+}
+
 document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   btn.addEventListener("click", function () {
     document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
@@ -814,6 +859,7 @@ loadDebt();
 loadMTS();
 loadRates();
 loadCash();
+loadFX();
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
