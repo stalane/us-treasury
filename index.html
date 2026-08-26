@@ -156,12 +156,14 @@ header .titles .sub {
 }
 .panel[data-state="loading"] .skeleton { display: block; }
 .panel[data-state="loading"] .chart-wrap,
-.panel[data-state="loading"] .table-wrap { display: none; }
+.panel[data-state="loading"] .table-wrap,
+.panel[data-state="loading"] .calendar { display: none; }
 .panel[data-state="ready"] .skeleton { display: none; }
 .panel[data-state="ready"] .error-state { display: none; }
 .panel[data-state="error"] .skeleton { display: none; }
 .panel[data-state="error"] .chart-wrap,
-.panel[data-state="error"] .table-wrap { display: none; }
+.panel[data-state="error"] .table-wrap,
+.panel[data-state="error"] .calendar { display: none; }
 .panel[data-state="error"] .error-state { display: block; }
 #panel-calendar { grid-column: 1 / -1; }
 
@@ -320,6 +322,7 @@ header .titles .sub {
 }
 .cal-row:hover { background: rgba(79,156,247,0.08); }
 .cal-row .c-time { color: var(--muted); min-width: 44px; }
+.cal-row .c-date { color: var(--muted); min-width: 56px; }
 .cal-row a { color: var(--blue); text-decoration: none; }
 .cal-row a:hover { text-decoration: underline; }
 #calendar-next7 { border-top: 1px solid var(--border); padding-top: 8px; }
@@ -847,6 +850,233 @@ async function loadFX() {
   }
 }
 
+const CAL_URL = "https://api.fiscaldata.treasury.gov/services/calendar/release";
+const META_URL = "https://api.fiscaldata.treasury.gov/services/dtg/metadata/";
+const CAL_MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const CAL_DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+let calMonth = new Date();
+calMonth.setDate(1);
+let calData = [];
+let calMeta = new Map();
+let calSelectedDay = null;
+
+function datasetUrl(slug) {
+  if (slug) return "https://fiscaldata.treasury.gov/datasets/" + slug;
+  return "https://fiscaldata.treasury.gov/search/";
+}
+
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return y + "-" + m + "-" + day;
+}
+
+function addDaysIso(iso, n) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return isoDate(d);
+}
+
+function fmtShortDate(iso) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function fmtDayHeading(iso) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+}
+
+async function loadCalendar() {
+  const panelId = "calendar";
+  setPanelState(panelId, "loading");
+  try {
+    const [calRes, metaRes] = await Promise.all([fetch(CAL_URL), fetch(META_URL)]);
+    if (!calRes.ok) throw new Error("HTTP " + calRes.status);
+    if (!metaRes.ok) throw new Error("HTTP " + metaRes.status);
+    calData = await calRes.json();
+    const meta = await metaRes.json();
+    calMeta = new Map(meta.map(m => [m.dataset_id, { title: m.title, slug: m.dataset_path }]));
+    renderCalendar();
+    setPanelState(panelId, "ready");
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadCalendar;
+  }
+}
+
+function renderCalendar() {
+  document.getElementById("cal-month-label").textContent = CAL_MONTHS[calMonth.getMonth()] + " " + calMonth.getFullYear();
+  document.querySelector('#panel-calendar .panel-asof').textContent = "as of " + isoDate(new Date());
+  renderNext7();
+  renderGrid();
+  renderList();
+}
+
+function upcomingOn(iso) {
+  return calData.filter(r => r.released === "false" && r.date === iso);
+}
+
+function firstUpcomingDay() {
+  const y = calMonth.getFullYear();
+  const m = calMonth.getMonth();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const prefix = y + "-" + String(m + 1).padStart(2, "0");
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = prefix + "-" + String(d).padStart(2, "0");
+    if (upcomingOn(iso).length > 0) return iso;
+  }
+  return null;
+}
+
+function renderGrid() {
+  const grid = document.getElementById("calendar-grid");
+  grid.innerHTML = "";
+  for (const dow of CAL_DOW) {
+    const el = document.createElement("div");
+    el.className = "cal-dow";
+    el.textContent = dow;
+    grid.appendChild(el);
+  }
+  const y = calMonth.getFullYear();
+  const m = calMonth.getMonth();
+  const firstDow = new Date(y, m, 1).getDay();
+  for (let i = 0; i < firstDow; i++) {
+    const blank = document.createElement("div");
+    blank.className = "cal-day other";
+    grid.appendChild(blank);
+  }
+  const todayIso = isoDate(new Date());
+  const monthPrefix = y + "-" + String(m + 1).padStart(2, "0");
+  if (!calSelectedDay || !calSelectedDay.startsWith(monthPrefix)) {
+    calSelectedDay = firstUpcomingDay();
+  }
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = monthPrefix + "-" + String(d).padStart(2, "0");
+    const cell = document.createElement("div");
+    cell.className = "cal-day";
+    cell.textContent = String(d);
+    const upcoming = upcomingOn(iso);
+    if (upcoming.length > 0) {
+      if (upcoming.length > 1) {
+        const badge = document.createElement("span");
+        badge.className = "count";
+        badge.textContent = String(upcoming.length);
+        cell.appendChild(badge);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = "cal-dot";
+        cell.appendChild(dot);
+      }
+      cell.addEventListener("click", () => {
+        calSelectedDay = iso;
+        renderGrid();
+        renderList();
+      });
+    }
+    if (iso === todayIso) cell.classList.add("today");
+    if (iso === calSelectedDay) cell.classList.add("selected");
+    grid.appendChild(cell);
+  }
+}
+
+function renderList() {
+  const box = document.getElementById("calendar-list");
+  box.innerHTML = "";
+  const heading = document.createElement("h4");
+  if (!calSelectedDay) {
+    heading.textContent = "Select a day";
+    box.appendChild(heading);
+    return;
+  }
+  heading.textContent = fmtDayHeading(calSelectedDay);
+  box.appendChild(heading);
+  const rows = calData.filter(r => r.date === calSelectedDay)
+                      .sort((a, b) => (a.time || "99:99") < (b.time || "99:99") ? -1 : 1);
+  if (rows.length === 0) {
+    const none = document.createElement("div");
+    none.className = "cal-row";
+    none.textContent = "No releases scheduled.";
+    box.appendChild(none);
+    return;
+  }
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "cal-row";
+    const dot = document.createElement("span");
+    dot.className = "status-dot " + (r.released === "true" ? "released" : "upcoming");
+    const time = document.createElement("span");
+    time.className = "c-time";
+    time.textContent = r.time || "—";
+    row.appendChild(dot);
+    row.appendChild(time);
+    row.appendChild(calNameSpan(r));
+    box.appendChild(row);
+  }
+}
+
+function calNameSpan(r) {
+  const meta = calMeta.get(r.datasetId);
+  const title = meta && meta.title ? meta.title : r.datasetId;
+  const span = document.createElement("span");
+  if (meta && meta.slug) {
+    const a = document.createElement("a");
+    a.href = datasetUrl(meta.slug);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = title;
+    span.appendChild(a);
+  } else {
+    span.textContent = title;
+  }
+  return span;
+}
+
+function renderNext7() {
+  const box = document.getElementById("calendar-next7");
+  box.innerHTML = "";
+  const heading = document.createElement("h4");
+  heading.textContent = "Next 7 Days";
+  box.appendChild(heading);
+  const todayIso = isoDate(new Date());
+  const endIso = addDaysIso(todayIso, 7);
+  const rows = calData
+    .filter(r => r.released === "false" && r.date >= todayIso && r.date <= endIso)
+    .sort((a, b) => a.date + ":" + (a.time || "") < b.date + ":" + (b.time || "") ? -1 : 1);
+  if (rows.length === 0) {
+    const none = document.createElement("div");
+    none.className = "cal-row";
+    none.textContent = "No upcoming releases in the next 7 days.";
+    box.appendChild(none);
+    return;
+  }
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "cal-row";
+    const date = document.createElement("span");
+    date.className = "c-date";
+    date.textContent = fmtShortDate(r.date);
+    const time = document.createElement("span");
+    time.className = "c-time";
+    time.textContent = r.time || "—";
+    row.appendChild(date);
+    row.appendChild(time);
+    row.appendChild(calNameSpan(r));
+    box.appendChild(row);
+  }
+}
+
+function changeCalMonth(delta) {
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + delta, 1);
+  document.getElementById("cal-month-label").textContent = CAL_MONTHS[calMonth.getMonth()] + " " + calMonth.getFullYear();
+  renderGrid();
+  renderList();
+}
+
+document.getElementById("cal-prev").addEventListener("click", () => changeCalMonth(-1));
+document.getElementById("cal-next").addEventListener("click", () => changeCalMonth(1));
+
 document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   btn.addEventListener("click", function () {
     document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
@@ -860,6 +1090,7 @@ loadMTS();
 loadRates();
 loadCash();
 loadFX();
+loadCalendar();
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
