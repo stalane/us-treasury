@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>US Treasury Fiscal Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #0d1420;
+  --card: #121a28;
+  --border: #1e2a3a;
+  --text: #e6ecf5;
+  --muted: #8aa0bd;
+  --blue: #4f9cf7;
+  --green: #2ecc8f;
+  --red: #ff5a5f;
+  --gold: #f7b32b;
+  --violet: #a78bfa;
+  --grid: #1e2a3a;
+  --tick: #8aa0bd;
+  --radius: 14px;
+  --glow: 0 0 24px rgba(79, 156, 247, 0.12);
+  --mono: 'DejaVu Sans Mono', 'SFMono-Regular', Consolas, monospace;
+  --sans: 'DejaVu Sans', 'Liberation Sans', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.5;
+  padding: 24px;
+  min-height: 100vh;
+}
+
+#js-errors {
+  display: none;
+}
+
+.wrap { max-width: 1280px; margin: 0 auto; }
+
+/* ---------- Header ---------- */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+header .titles h1 {
+  font-size: 26px;
+  letter-spacing: 0.5px;
+}
+header .titles .sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--green);
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  padding: 2px 10px;
+  margin-left: 10px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+#last-updated {
+  color: var(--muted);
+  font-size: 13px;
+  font-family: var(--mono);
+}
+#refresh-btn {
+  background: var(--blue);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+#refresh-btn:hover { filter: brightness(1.1); }
+#refresh-btn:active { transform: translateY(1px); }
+
+/* ---------- KPI strip ---------- */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.kpi {
+  background: linear-gradient(180deg, var(--card), #0f1726);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--glow);
+}
+.kpi .kpi-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+.kpi .kpi-value {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+}
+.kpi .kpi-delta {
+  font-family: var(--mono);
+  font-size: 14px;
+  margin-top: 6px;
+}
+.kpi .kpi-delta.up { color: var(--green); }
+.kpi .kpi-delta.down { color: var(--red); }
+.kpi .kpi-delta.flat { color: var(--muted); }
+.kpi .kpi-date {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+/* ---------- Panel grid ---------- */
+.panel-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--glow);
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+}
+.panel[data-state="loading"] .skeleton { display: block; }
+.panel[data-state="loading"] .chart-wrap,
+.panel[data-state="loading"] .table-wrap { display: none; }
+.panel[data-state="ready"] .skeleton { display: none; }
+.panel[data-state="ready"] .error-state { display: none; }
+.panel[data-state="error"] .skeleton { display: none; }
+.panel[data-state="error"] .chart-wrap,
+.panel[data-state="error"] .table-wrap { display: none; }
+#panel-calendar { grid-column: 1 / -1; }
+
+.panel h2 {
+  font-size: 16px;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+.panel-asof {
+  color: var(--muted);
+  font-size: 12px;
+  font-family: var(--mono);
+  margin-bottom: 14px;
+}
+.panel .panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.skeleton {
+  display: none;
+  height: 100%;
+  min-height: 240px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #16202f 25%, #1c2839 50%, #16202f 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.chart-wrap { position: relative; height: 280px; }
+.chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+/* ---------- Error state ---------- */
+.error-state {
+  display: none;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.error-state p { margin-bottom: 12px; }
+.retry-btn {
+  background: transparent;
+  color: var(--blue);
+  border: 1px solid var(--blue);
+  border-radius: 8px;
+  padding: 8px 18px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.retry-btn:hover { background: rgba(79, 156, 247, 0.12); }
+
+/* ---------- Tables (FX etc.) ---------- */
+.table-wrap { margin-top: 12px; }
+.table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.table-wrap th, .table-wrap td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.table-wrap th { color: var(--muted); font-weight: 600; }
+.table-wrap td { color: var(--text); }
+
+/* ---------- Toggle buttons (debt) ---------- */
+.toggle-group { margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.toggle-group button {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.toggle-group button.active { color: #fff; border-color: var(--blue); background: rgba(79,156,247,0.15); }
+
+/* ---------- Calendar ---------- */
+.calendar { display: flex; flex-direction: column; gap: 16px; }
+.cal-nav { display: flex; align-items: center; justify-content: space-between; }
+.cal-nav button {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.cal-nav button:hover { color: #fff; border-color: var(--blue); }
+#cal-month-label { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.cal-dow { text-align: center; color: var(--muted); font-size: 11px; text-transform: uppercase; padding: 4px 0; }
+.cal-day {
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  border: 1px solid transparent;
+  cursor: pointer;
+  position: relative;
+}
+.cal-day:hover { border-color: var(--blue); }
+.cal-day.other { opacity: 0.35; }
+.cal-day.today { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.cal-day.selected { background: rgba(79,156,247,0.18); border-color: var(--blue); }
+.cal-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+  margin-top: 4px;
+}
+.cal-day .count {
+  position: absolute;
+  top: 2px; right: 4px;
+  font-size: 9px;
+  color: var(--gold);
+}
+.cal-day .status-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.status-dot.released { background: var(--green); }
+.status-dot.upcoming { background: #6b7a95; }
+.cal-list { max-height: 220px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 10px; }
+.cal-list h4 { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin: 10px 0 6px; }
+.cal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 5px 4px;
+  border-radius: 6px;
+}
+.cal-row:hover { background: rgba(79,156,247,0.08); }
+.cal-row .c-time { color: var(--muted); min-width: 44px; }
+.cal-row a { color: var(--blue); text-decoration: none; }
+.cal-row a:hover { text-decoration: underline; }
+#calendar-next7 { border-top: 1px solid var(--border); padding-top: 8px; }
+
+/* ---------- Footer ---------- */
+footer {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+footer .links { margin-bottom: 8px; }
+footer a { color: var(--blue); text-decoration: none; }
+footer a:hover { text-decoration: underline; }
+footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+  .panel-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .kpi-strip { grid-template-columns: 1fr; }
+  body { padding: 14px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="titles">
+      <h1>US Treasury Fiscal Dashboard<span class="badge">Live</span></h1>
+      <div class="sub">National debt · Receipts &amp; Outlays · Operating cash · Rates · FX · Release calendar</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <span id="last-updated">Loading…</span>
+      <button id="refresh-btn" type="button">Refresh</button>
+    </div>
+  </header>
+
+  <section class="kpi-strip" aria-label="Key indicators">
+    <div class="kpi" id="kpi-debt-total">
+      <div class="kpi-label">Total Public Debt</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-delta flat"></div>
+      <span class="kpi-date"></span>
+    </div>
+    <div class="kpi" id="kpi-debt-public">
+      <div class="kpi-label">Debt Held by the Public</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-delta flat"></div>
+      <span class="kpi-date"></span>
+    </div>
+    <div class="kpi" id="kpi-fy-deficit">
+      <div class="kpi-label">FY Deficit / Surplus</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-delta flat"></div>
+      <span class="kpi-date"></span>
+    </div>
+    <div class="kpi" id="kpi-cash-net">
+      <div class="kpi-label">TGA Cash Net Change</div>
+      <div class="kpi-value">—</div>
+      <div class="kpi-delta flat"></div>
+      <span class="kpi-date"></span>
+    </div>
+  </section>
+
+  <main class="panel-grid">
+
+    <section class="panel" id="panel-debt" data-state="loading">
+      <h2>National Debt</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="chart-wrap"><canvas id="chart-debt"></canvas></div>
+        <div class="error-state">
+          <p>Unable to load national debt data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-mts" data-state="loading">
+      <h2>Receipts vs Outlays</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="chart-wrap"><canvas id="chart-mts"></canvas></div>
+        <div class="error-state">
+          <p>Unable to load receipts and outlays data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-rates" data-state="loading">
+      <h2>Average Interest Rates</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="chart-wrap"><canvas id="chart-rates"></canvas></div>
+        <div class="error-state">
+          <p>Unable to load interest rate data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-cash" data-state="loading">
+      <h2>Operating Cash (Net Change)</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="chart-wrap"><canvas id="chart-cash"></canvas></div>
+        <div class="error-state">
+          <p>Unable to load operating cash data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-fx" data-state="loading">
+      <h2>Foreign Exchange Rates</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="chart-wrap"><canvas id="chart-fx"></canvas></div>
+        <div class="table-wrap">
+          <table id="fx-table">
+            <thead><tr><th>Currency</th><th>Rate</th><th>Date</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="error-state">
+          <p>Unable to load foreign exchange data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-calendar" data-state="loading">
+      <h2>Release Calendar</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="calendar">
+          <div class="cal-nav">
+            <button id="cal-prev" type="button">‹ Prev</button>
+            <span id="cal-month-label">—</span>
+            <button id="cal-next" type="button">Next ›</button>
+          </div>
+          <div class="cal-grid" id="calendar-grid"></div>
+          <div class="cal-list" id="calendar-list"></div>
+          <div class="cal-list" id="calendar-next7"></div>
+        </div>
+        <div class="error-state">
+          <p>Unable to load the release calendar.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div class="links">
+      Data source:
+      <a href="https://fiscaldata.treasury.gov/" target="_blank" rel="noopener">fiscaldata.treasury.gov</a>
+      ·
+      <a href="https://fiscaldata.treasury.gov/api-documentation/" target="_blank" rel="noopener">API Documentation</a>
+    </div>
+    <div class="disclaimer">
+      Figures are provided by the U.S. Department of the Treasury Fiscal Data API and are for
+      informational purposes only. The operating-cash figure reflects daily net change
+      (deposits minus withdrawals), not an absolute cash balance.
+    </div>
+  </footer>
+
+</div>
+
+<div id="js-errors" hidden></div>
+
+<script>
+window.onerror = function (message, source, lineno, colno, error) {
+  var el = document.getElementById("js-errors");
+  if (el) {
+    var line = String(message) + " (line " + (lineno != null ? lineno : "?") + ")";
+    var div = document.createElement("div");
+    div.textContent = line;
+    el.appendChild(div);
+  }
+};
+
+const API = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service";
+
+async function getJSON(path, params) {
+  params = params || {};
+  var url = new URL(API + "/" + path);
+  if (params.filter) url.searchParams.set("filter", params.filter);
+  if (params.sort) url.searchParams.set("sort", params.sort);
+  if (params.pageSize) url.searchParams.set("page[size]", params.pageSize);
+  if (params.pageNumber) url.searchParams.set("page[number]", params.pageNumber);
+  var res = await fetch(url);
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+function num(v) {
+  if (v == null || v === "" || v === "null") return null;
+  var n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtCompact(n) {
+  if (n == null) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1
+  }).format(n);
+}
+
+function fmtDollars(n) {
+  if (n == null) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency", currency: "USD", maximumFractionDigits: 0
+  }).format(n);
+}
+
+function setPanelState(panelId, state) {
+  var panel = document.getElementById("panel-" + panelId);
+  if (!panel) return;
+  panel.setAttribute("data-state", state);
+  var body = panel.querySelector(".panel-body");
+  var err = panel.querySelector(".error-state");
+  if (err) err.style.display = state === "error" ? "" : "none";
+  if (body) body.classList.toggle("skeleton-active", state === "loading");
+}
+
+function makeChart(canvasId, type, data, opts) {
+  var ctx = document.getElementById(canvasId);
+  if (!ctx) return null;
+  opts = opts || {};
+  var font = { family: "DejaVu Sans" };
+  var options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: true,
+        labels: { color: "#8aa0bd", usePointStyle: true, boxWidth: 10, font: font }
+      }
+    },
+    scales: {
+      x: { grid: { color: "#1e2a3a" }, ticks: { color: "#8aa0bd", font: font } },
+      y: { grid: { color: "#1e2a3a" }, ticks: { color: "#8aa0bd", font: font } }
+    }
+  };
+  if (opts.scales) {
+    if (opts.scales.x) Object.assign(options.scales.x, opts.scales.x);
+    if (opts.scales.y) Object.assign(options.scales.y, opts.scales.y);
+  }
+  if (opts.plugins) Object.assign(options.plugins, opts.plugins);
+  delete opts.scales;
+  delete opts.plugins;
+  Object.assign(options, opts);
+  return new Chart(ctx, { type: type, data: data, options: options });
+}
+
+document.getElementById("refresh-btn").addEventListener("click", function () {
+  if (window.refreshAll) window.refreshAll();
+});
+</script>
+</body>
+</html>
