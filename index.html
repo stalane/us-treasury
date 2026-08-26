@@ -685,6 +685,7 @@ async function loadDebt() {
     window.debtLatestDate = latest.date;
     document.querySelector('#panel-debt .panel-asof').textContent = `as of ${latest.date}`;
     setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
   } catch (e) {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadDebt;
@@ -728,6 +729,7 @@ async function loadMTS() {
     });
     document.querySelector('#panel-mts .panel-asof').textContent = `as of ${latest}`;
     setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
   } catch (e) {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadMTS;
@@ -758,6 +760,7 @@ async function loadRates() {
     makeChart("chart-rates", "line", { labels, datasets });
     document.querySelector('#panel-rates .panel-asof').textContent = `as of ${labels[labels.length-1]}`;
     setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
   } catch (e) {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadRates;
@@ -799,6 +802,7 @@ async function loadCash() {
     setKpi("kpi-cash-net", lastNet, null, `Latest daily net change (${labels[labels.length-1]})`, labels[labels.length-1]);
     document.querySelector('#panel-cash .panel-asof').textContent = `as of ${labels[labels.length-1]}`;
     setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
   } catch (e) {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadCash;
@@ -844,6 +848,7 @@ async function loadFX() {
     }
     document.querySelector('#panel-fx .panel-asof').textContent = `as of ${latest}`;
     setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
   } catch (e) {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadFX;
@@ -899,6 +904,7 @@ async function loadCalendar() {
     calMeta = new Map(meta.map(m => [m.dataset_id, { title: m.title, slug: m.dataset_path }]));
     renderCalendar();
     setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
   } catch (e) {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadCalendar;
@@ -1085,12 +1091,23 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   });
 });
 
-loadDebt();
-loadMTS();
-loadRates();
-loadCash();
-loadFX();
-loadCalendar();
+const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadCalendar];
+
+async function refreshAll() {
+  const t = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+  document.getElementById("last-updated").textContent = `Last updated ${t} ET`;
+  await Promise.all(LOADERS.map(fn => Promise.resolve().then(fn).catch(() => {})));
+  document.getElementById("last-updated").textContent += ` · refreshed ${new Date().toLocaleTimeString()}`;
+}
+window.refreshAll = refreshAll;
+window.addEventListener("DOMContentLoaded", refreshAll);
+
+document.addEventListener("click", (e) => {
+  if (e.target.classList.contains("retry-btn")) {
+    const fn = window.__pendingRetry || window.refreshAll;
+    fn();
+  }
+});
 
 document.getElementById("refresh-btn").addEventListener("click", function () {
   if (window.refreshAll) window.refreshAll();
