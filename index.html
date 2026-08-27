@@ -226,6 +226,19 @@ header .titles .sub {
 
 /* ---------- Tables (FX etc.) ---------- */
 .table-wrap { margin-top: 12px; }
+.fx-select { margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.fx-select label { color: var(--muted); font-size: 13px; letter-spacing: 0.3px; }
+.fx-select select {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.fx-select select:focus { outline: none; border-color: var(--blue); }
 .table-wrap table {
   width: 100%;
   border-collapse: collapse;
@@ -456,6 +469,10 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
       <span class="panel-asof">as of —</span>
       <div class="panel-body">
         <div class="skeleton"></div>
+        <div class="fx-select">
+          <label for="fx-currency">Currency</label>
+          <select id="fx-currency"></select>
+        </div>
         <div class="chart-wrap"><canvas id="chart-fx"></canvas></div>
         <div class="table-wrap">
           <table id="fx-table">
@@ -856,23 +873,17 @@ async function loadFX() {
     rows.reverse();
     const labels = [...new Set(rows.map(r => r.record_date))].slice(-12);
     if (!labels.length) throw new Error("no data");
-    const byCur = new Map();
+    window.fxByCur = new Map();
     for (const r of rows) {
       const cur = FX_COUNTRY[r.country] || r.currency;
-      if (!byCur.has(cur)) byCur.set(cur, new Map());
-      byCur.get(cur).set(r.record_date, num(r.exchange_rate));
+      if (!window.fxByCur.has(cur)) window.fxByCur.set(cur, new Map());
+      window.fxByCur.get(cur).set(r.record_date, num(r.exchange_rate));
     }
-    const palette = ["#4f9cf7", "#2ecc8f", "#ff5a5f", "#f7b32b", "#a78bfa", "#22d3ee", "#f472b6", "#fbbf24", "#94a3b8"];
-    const datasets = [...byCur.entries()].map(([cur, m], i) => ({
-      label: cur, data: labels.map(d => m.get(d) ?? null),
-      borderColor: palette[i % palette.length], pointRadius: 0, tension: 0.3, spanGaps: true,
-    }));
-    makeChart("chart-fx", "line", { labels, datasets });
     // Table of latest values
     const latest = labels[labels.length - 1];
     const tbody = document.querySelector('#fx-table tbody');
     tbody.innerHTML = "";
-    for (const [cur, m] of byCur) {
+    for (const [cur, m] of window.fxByCur) {
       const v = m.get(latest);
       const row = document.createElement("tr");
       const cCur = document.createElement("td");
@@ -886,6 +897,24 @@ async function loadFX() {
       row.appendChild(cDate);
       tbody.appendChild(row);
     }
+    // Currency selector, default JPY
+    const sel = document.getElementById("fx-currency");
+    sel.innerHTML = "";
+    for (const cur of window.fxByCur.keys()) {
+      const opt = document.createElement("option");
+      opt.value = cur;
+      opt.textContent = cur;
+      if (cur === "JPY") {
+        opt.selected = true;
+        opt.setAttribute("selected", "");
+      }
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", function () {
+      renderFXChart(this.value, labels);
+    });
+    window.fxLabels = labels;
+    renderFXChart(sel.value, labels);
     document.querySelector('#panel-fx .panel-asof').textContent = `as of ${latest}`;
     setPanelState(panelId, "ready");
     window.__pendingRetry = null;
@@ -893,6 +922,28 @@ async function loadFX() {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadFX;
   }
+}
+
+function renderFXChart(cur, labels) {
+  if (!window.fxByCur) return;
+  const m = window.fxByCur.get(cur);
+  const data = labels.map(d => m ? m.get(d) ?? null : null);
+  makeChart("chart-fx", "line", {
+    labels: labels,
+    datasets: [{
+      label: cur + " per USD",
+      data: data,
+      borderColor: "#4f9cf7",
+      backgroundColor: "#4f9cf755",
+      fill: true,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2,
+      spanGaps: true
+    }]
+  }, {
+    scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
+  });
 }
 
 async function loadAuctions() {
