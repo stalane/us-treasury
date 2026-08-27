@@ -171,12 +171,24 @@ header .titles .sub {
   font-size: 16px;
   letter-spacing: 0.3px;
   margin-bottom: 2px;
+  color: #fff;
 }
 .panel-asof {
   color: var(--muted);
   font-size: 12px;
-  font-family: var(--mono);
-  margin-bottom: 14px;
+  letter-spacing: 0.3px;
+}
+.panel-subhead {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  margin: 16px 0 4px;
+}
+.subhead-asof {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.3px;
 }
 .panel .panel-body {
   flex: 1;
@@ -498,21 +510,10 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
             <tbody></tbody>
           </table>
         </div>
-        <div class="error-state">
-          <p>Unable to load upcoming auction data.</p>
-          <button class="retry-btn" type="button">Retry</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel" id="panel-expense" data-state="loading">
-      <h2>Interest Expense on the Public Debt</h2>
-      <span class="panel-asof">as of —</span>
-      <div class="panel-body">
-        <div class="skeleton"></div>
+        <h3 class="panel-subhead">Interest Expense on the Public Debt <span class="subhead-asof" id="expense-asof"></span></h3>
         <div class="chart-wrap"><canvas id="chart-expense"></canvas></div>
         <div class="error-state">
-          <p>Unable to load interest expense data.</p>
+          <p>Unable to load upcoming auction data.</p>
           <button class="retry-btn" type="button">Retry</button>
         </div>
       </div>
@@ -963,9 +964,12 @@ async function loadAuctions() {
   const panelId = "auctions";
   setPanelState(panelId, "loading");
   try {
-    const j = await getJSON("v1/accounting/od/upcoming_auctions", { pageSize: 200 });
+    const [auctionsRes, expenseRes] = await Promise.all([
+      getJSON("v1/accounting/od/upcoming_auctions", { pageSize: 200 }),
+      getJSON("v2/accounting/od/interest_expense", { sort: "-record_date", pageSize: 1000 })
+    ]);
     const today = isoDate(new Date());
-    const rows = j.data
+    const rows = auctionsRes.data
       .filter(r => r.auction_date && r.auction_date >= today)
       .sort((a, b) => a.auction_date < b.auction_date ? -1 : 1)
       .slice(0, 12);
@@ -990,6 +994,32 @@ async function loadAuctions() {
       tbody.appendChild(row);
     }
     document.querySelector('#panel-auctions .panel-asof').textContent = `next ${fmtShortDate(rows[0].auction_date)}`;
+    // Interest expense chart (fills the rest of this card)
+    const erows = expenseRes.data.slice().reverse(); // asc by date
+    const perMonth = new Map();
+    for (const r of erows) {
+      const amt = num(r.month_expense_amt);
+      if (amt == null) continue;
+      perMonth.set(r.record_date, (perMonth.get(r.record_date) || 0) + amt);
+    }
+    const months = [...perMonth.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).slice(-24);
+    if (months.length) {
+      const labels = months.map(m => m[0]);
+      const data = months.map(m => m[1]);
+      makeChart("chart-expense", "bar", {
+        labels,
+        datasets: [{
+          label: "Monthly interest expense",
+          data,
+          backgroundColor: "rgba(247,179,43,0.7)",
+          borderColor: "#f7b32b",
+          borderWidth: 1
+        }]
+      }, {
+        scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
+      });
+      document.getElementById("expense-asof").textContent = `· as of ${labels[labels.length - 1]}`;
+    }
     setPanelState(panelId, "ready");
     window.__pendingRetry = null;
   } catch (e) {
@@ -1033,45 +1063,6 @@ function fmtShortDate(iso) {
 
 function fmtDayHeading(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-}
-
-async function loadExpense() {
-  const panelId = "expense";
-  setPanelState(panelId, "loading");
-  try {
-    const j = await getJSON("v2/accounting/od/interest_expense", { sort: "-record_date", pageSize: 1000 });
-    const rows = j.data; // desc by date; reverse for asc
-    rows.reverse();
-    const perMonth = new Map();
-    for (const r of rows) {
-      const amt = num(r.month_expense_amt);
-      if (amt == null) continue;
-      perMonth.set(r.record_date, (perMonth.get(r.record_date) || 0) + amt);
-    }
-    const months = [...perMonth.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).slice(-24);
-    if (!months.length) throw new Error("no data");
-    const labels = months.map(m => m[0]);
-    const data = months.map(m => m[1]);
-    makeChart("chart-expense", "bar", {
-      labels,
-      datasets: [{
-        label: "Monthly interest expense",
-        data,
-        backgroundColor: "rgba(247,179,43,0.7)",
-        borderColor: "#f7b32b",
-        borderWidth: 1
-      }]
-    }, {
-      scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
-    });
-    const latest = labels[labels.length - 1];
-    document.querySelector('#panel-expense .panel-asof').textContent = `as of ${latest}`;
-    setPanelState(panelId, "ready");
-    window.__pendingRetry = null;
-  } catch (e) {
-    setPanelState(panelId, "error");
-    window.__pendingRetry = loadExpense;
-  }
 }
 
 async function loadCalendar() {
@@ -1273,7 +1264,7 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   });
 });
 
-const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadAuctions, loadExpense, loadCalendar];
+const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadAuctions, loadCalendar];
 
 let refreshing = false;
 
