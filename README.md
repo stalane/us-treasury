@@ -49,7 +49,7 @@ The page fetches data **live from the browser** (the Treasury API is CORS-open,
 so no proxy is needed) and needs nothing installed.
 
 ```bash
-cd /home/david/Documents/us-treasury
+cd /us-treasury
 python3 -m http.server 8765
 ```
 
@@ -180,7 +180,7 @@ seven panels reach the `ready` state with no JavaScript errors.
 > fetches and Chart.js render before the DOM is dumped.
 
 ```bash
-cd /home/david/Documents/us-treasury
+cd /us-treasury
 python3 -m http.server 8765 >/tmp/http.log 2>&1 & echo $! > /tmp/http.pid
 google-chrome --headless=new --disable-gpu --no-sandbox --virtual-time-budget=25000 \
   --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36" \
