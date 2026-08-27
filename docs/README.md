@@ -21,7 +21,10 @@ step, no server, no dependencies except the Chart.js CDN).
   (multi-series line chart).
 - **Operating Cash** — daily **net change** bars (deposits minus withdrawals)
   plus a cumulative net-change line.
-- **FX** — latest-rate table plus a multi-line chart for major currencies.
+- **FX** — a currency selector (default **JPY**) charting the selected currency,
+  plus a latest-rate table for all major currencies.
+- **Upcoming Auctions + Interest Expense** — upcoming-auction table with a
+  monthly interest-expense bar chart below it.
 - **Release Calendar** — up-to-date month grid with upcoming-release dots and a
   "next 7 days" list, with dataset links.
 - Every panel independently shows a loading skeleton, a ready state with an
@@ -54,6 +57,8 @@ API base: `https://api.fiscaldata.treasury.gov/services/api/fiscal_service`
 | Interest Rates | Average Interest Rates | `v2/accounting/od/avg_interest_rates` |
 | Operating Cash | Deposits & Withdrawals of Operating Cash | `v1/accounting/dts/deposits_withdrawals_operating_cash` |
 | FX | Rates of Exchange | `v1/accounting/od/rates_of_exchange` |
+| Upcoming Auctions | Treasury Securities Upcoming Auctions | `v1/accounting/od/upcoming_auctions` |
+| Interest Expense | Interest Expense on the Public Debt Outstanding | `v2/accounting/od/interest_expense` |
 | Release Calendar | Fiscal Service calendar + dataset metadata | `services/calendar/release` + `services/dtg/metadata/` |
 
 Note the **version split**: the debt, interest-rate, and (v2) endpoints sit

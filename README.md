@@ -26,12 +26,12 @@ step, no server, no account, no API keys.
   Bonds, TIPS, and FRNs over the last ~24 months.
 - **Operating Cash** — daily **net change** bars (deposits minus withdrawals)
   plus a cumulative net-change line, last ~90 days.
-- **FX** — latest-rate table and a multi-line chart for nine major currencies
+- **FX** — a currency selector (default **JPY**) that charts the selected
+  currency's history, plus a latest-rate table for all nine major currencies
   (EUR, GBP, JPY, CNY, CAD, CHF, AUD, MXN, INR).
-- **Upcoming Treasury Auctions** — the next scheduled auctions (security type,
-  term, offering amount, auction date) in a compact table.
-- **Interest Expense on the Public Debt** — monthly interest expense over the
-  last ~24 months (bar chart).
+- **Upcoming Treasury Auctions + Interest Expense** — the next scheduled
+  auctions (security type, term, offering amount, auction date) in a compact
+  table, with a monthly **Interest Expense** bar chart below it.
 - **Release Calendar** — the official upcoming-release schedule as an
   interactive month grid (release-day dots, clickable days) plus a
   "next 7 days" list. Every release links to its dataset page.
@@ -69,8 +69,10 @@ has its own Retry button for transient failures.
 
 1. On `DOMContentLoaded`, `refreshAll()` fires every panel loader in parallel.
 2. Each loader (`loadDebt`, `loadMTS`, `loadRates`, `loadCash`, `loadFX`,
-   `loadCalendar`) fetches its endpoint with `fetch()` against the Fiscal Data
-   API, reshapes the JSON rows, and renders into its panel.
+   `loadAuctions`, `loadCalendar`) fetches its endpoint with `fetch()` against
+   the Fiscal Data API, reshapes the JSON rows, and renders into its panel.
+   (`loadAuctions` fetches two datasets — upcoming auctions plus interest
+   expense — for its combined card.)
 3. Charts are drawn with **Chart.js 4** (loaded from the jsDelivr CDN). A shared
    `makeChart()` factory applies the dark theme (grid lines, tick colors,
    DejaVu Sans) and keeps a `canvasId → chart` registry so re-renders and
@@ -106,8 +108,8 @@ All data comes from the U.S. Treasury Fiscal Data API
 | Interest Rates | Average Interest Rates | `v2/accounting/od/avg_interest_rates` | Monthly |
 | Operating Cash | Deposits & Withdrawals of Operating Cash | `v1/accounting/dts/deposits_withdrawals_operating_cash` | Daily |
 | FX | Rates of Exchange | `v1/accounting/od/rates_of_exchange` | ~Monthly |
-| Upcoming Auctions | Treasury Securities Upcoming Auctions | `v1/accounting/od/upcoming_auctions` | As needed |
-| Interest Expense | Interest Expense on the Public Debt Outstanding | `v2/accounting/od/interest_expense` | Monthly |
+| Upcoming Auctions + Interest Expense | Treasury Securities Upcoming Auctions | `v1/accounting/od/upcoming_auctions` | As needed |
+|  | Interest Expense on the Public Debt Outstanding | `v2/accounting/od/interest_expense` | Monthly |
 | Release Calendar | Fiscal Service release calendar | `services/calendar/release` | ~4 months ahead |
 | Calendar names | Dataset metadata | `services/dtg/metadata/` | Maps datasetId → title/slug |
 
@@ -161,7 +163,7 @@ dependencies beyond the Chart.js CDN `<script>` tag. Everything lives in
   cards `#121a28`, borders `#1e2a3a`; accents blue `#4f9cf7`, green `#2ecc8f`,
   red `#ff5a5f`, gold `#f7b32b`, violet `#a78bfa`), responsive layout
   (grid collapses below 900px), skeleton shimmer, error states, calendar.
-- `<body>` — header (title, LIVE badge, last-updated, Refresh), KPI strip, eight
+- `<body>` — header (title, LIVE badge, last-updated, Refresh), KPI strip, seven
   panels, footer with data-source links and disclaimer.
 - `<script>` — helpers, panel loaders, Chart.js factory, calendar module,
   refresh/boot wiring, and a `#js-errors` harness used by automated checks.
@@ -171,7 +173,7 @@ dependencies beyond the Chart.js CDN `<script>` tag. Everything lives in
 ## Verification
 
 Serve the page, dump the rendered DOM with headless Chrome, and assert that all
-eight panels reach the `ready` state with no JavaScript errors.
+seven panels reach the `ready` state with no JavaScript errors.
 
 > The `--user-agent` argument is **required**: the Fiscal Data API returns HTTP
 > 500 to Chrome's default headless UA. `--virtual-time-budget` lets the async
@@ -183,7 +185,7 @@ python3 -m http.server 8765 >/tmp/http.log 2>&1 & echo $! > /tmp/http.pid
 google-chrome --headless=new --disable-gpu --no-sandbox --virtual-time-budget=25000 \
   --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36" \
   --dump-dom "http://localhost:8765/index.html" > /tmp/dom.html 2>/tmp/chrome.err
-for p in debt mts rates cash fx auctions expense calendar; do
+for p in debt mts rates cash fx auctions calendar; do
   grep -q "id=\"panel-$p\" data-state=\"ready\"" /tmp/dom.html && echo "PASS panel-$p ready" || echo "FAIL panel-$p"
 done
 grep -q 'Last updated' /tmp/dom.html && echo "PASS last-updated"
@@ -200,7 +202,7 @@ EOF
 kill $(cat /tmp/http.pid) 2>/dev/null
 ```
 
-**Expected output:** eight `PASS panel-* ready` lines, `PASS last-updated`,
+**Expected output:** seven `PASS panel-* ready` lines, `PASS last-updated`,
 `JS ERRORS: NONE`, and no `ERROR STATE` lines.
 
 ---
