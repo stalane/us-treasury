@@ -463,6 +463,10 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
       <span class="panel-asof">as of —</span>
       <div class="panel-body">
         <div class="skeleton"></div>
+        <div class="toggle-group" id="cash-toggle">
+          <button type="button" data-mode="daily" class="active">Daily</button>
+          <button type="button" data-mode="cumulative">Cumulative</button>
+        </div>
         <div class="chart-wrap"><canvas id="chart-cash"></canvas></div>
         <div class="error-state">
           <p>Unable to load operating cash data.</p>
@@ -849,13 +853,8 @@ async function loadCash() {
     const net = days.map(d => d[1] * 1e6);          // daily net change in dollars
     let run = 0;
     const cum = days.map(d => (run += d[1] * 1e6)); // cumulative net change (indexed to 0 at window start)
-    makeChart("chart-cash", "bar", {
-      labels,
-      datasets: [
-        { label: "Daily net change", data: net, backgroundColor: net.map(v => v >= 0 ? "rgba(46,204,143,0.7)" : "rgba(255,90,95,0.7)") },
-        { label: "Cumulative net change", data: cum, type: "line", borderColor: "#f7b32b", pointRadius: 0, tension: 0.3 },
-      ],
-    });
+    window.cashSeries = { labels, net, cum };
+    renderCashChart("daily");
     const lastNet = net[net.length - 1];
     setKpi("kpi-cash-net", lastNet, null, `Latest daily net change (${labels[labels.length-1]})`, labels[labels.length-1]);
     document.querySelector('#panel-cash .panel-asof').textContent = `as of ${labels[labels.length-1]}`;
@@ -865,6 +864,39 @@ async function loadCash() {
     setPanelState(panelId, "error");
     window.__pendingRetry = loadCash;
   }
+}
+
+function renderCashChart(mode) {
+  var s = window.cashSeries;
+  if (!s) return;
+  if (mode === "cumulative") {
+    makeChart("chart-cash", "line", {
+      labels: s.labels,
+      datasets: [{
+        label: "Cumulative net change",
+        data: s.cum,
+        borderColor: "#f7b32b",
+        backgroundColor: "#f7b32b55",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        borderWidth: 2
+      }]
+    }, {
+      scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
+    });
+    return;
+  }
+  makeChart("chart-cash", "bar", {
+    labels: s.labels,
+    datasets: [{
+      label: "Daily net change",
+      data: s.net,
+      backgroundColor: s.net.map(function (v) { return v >= 0 ? "rgba(46,204,143,0.7)" : "rgba(255,90,95,0.7)"; })
+    }]
+  }, {
+    scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
+  });
 }
 
 const FX_COUNTRY = {
@@ -1257,6 +1289,14 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
     document.querySelectorAll("#debt-toggle button").forEach(function (b) { b.classList.remove("active"); });
     btn.classList.add("active");
     renderDebtChart(btn.getAttribute("data-series"));
+  });
+});
+
+document.querySelectorAll("#cash-toggle button").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    document.querySelectorAll("#cash-toggle button").forEach(function (b) { b.classList.remove("active"); });
+    btn.classList.add("active");
+    renderCashChart(btn.getAttribute("data-mode"));
   });
 });
 
