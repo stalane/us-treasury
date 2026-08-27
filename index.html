@@ -505,6 +505,19 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
       </div>
     </section>
 
+    <section class="panel" id="panel-expense" data-state="loading">
+      <h2>Interest Expense on the Public Debt</h2>
+      <span class="panel-asof">as of —</span>
+      <div class="panel-body">
+        <div class="skeleton"></div>
+        <div class="chart-wrap"><canvas id="chart-expense"></canvas></div>
+        <div class="error-state">
+          <p>Unable to load interest expense data.</p>
+          <button class="retry-btn" type="button">Retry</button>
+        </div>
+      </div>
+    </section>
+
     <section class="panel" id="panel-calendar" data-state="loading">
       <h2>Release Calendar</h2>
       <span class="panel-asof">as of —</span>
@@ -1022,6 +1035,45 @@ function fmtDayHeading(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
+async function loadExpense() {
+  const panelId = "expense";
+  setPanelState(panelId, "loading");
+  try {
+    const j = await getJSON("v2/accounting/od/interest_expense", { sort: "-record_date", pageSize: 1000 });
+    const rows = j.data; // desc by date; reverse for asc
+    rows.reverse();
+    const perMonth = new Map();
+    for (const r of rows) {
+      const amt = num(r.month_expense_amt);
+      if (amt == null) continue;
+      perMonth.set(r.record_date, (perMonth.get(r.record_date) || 0) + amt);
+    }
+    const months = [...perMonth.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1).slice(-24);
+    if (!months.length) throw new Error("no data");
+    const labels = months.map(m => m[0]);
+    const data = months.map(m => m[1]);
+    makeChart("chart-expense", "bar", {
+      labels,
+      datasets: [{
+        label: "Monthly interest expense",
+        data,
+        backgroundColor: "rgba(247,179,43,0.7)",
+        borderColor: "#f7b32b",
+        borderWidth: 1
+      }]
+    }, {
+      scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
+    });
+    const latest = labels[labels.length - 1];
+    document.querySelector('#panel-expense .panel-asof').textContent = `as of ${latest}`;
+    setPanelState(panelId, "ready");
+    window.__pendingRetry = null;
+  } catch (e) {
+    setPanelState(panelId, "error");
+    window.__pendingRetry = loadExpense;
+  }
+}
+
 async function loadCalendar() {
   const panelId = "calendar";
   setPanelState(panelId, "loading");
@@ -1221,7 +1273,7 @@ document.querySelectorAll("#debt-toggle button").forEach(function (btn) {
   });
 });
 
-const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadAuctions, loadCalendar];
+const LOADERS = [loadDebt, loadMTS, loadRates, loadCash, loadFX, loadAuctions, loadExpense, loadCalendar];
 
 let refreshing = false;
 
