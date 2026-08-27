@@ -48,15 +48,21 @@ step, no server, no account, no API keys.
 The page fetches data **live from the browser** (the Treasury API is CORS-open,
 so no proxy is needed) and needs nothing installed.
 
+The dashboard is served as a static site by **Caddy** on loopback
+(`127.0.0.1:8766`, systemd service `caddy`) and exposed publicly through a
+**Cloudflare Tunnel** at **<https://treasury.stalane.com>** (systemd service
+`treasury-tunnel`). Both are enabled and start on boot:
+
 ```bash
-cd /us-treasury
-python3 -m http.server 8765
+sudo systemctl status caddy            # static file server on 127.0.0.1:8766
+sudo systemctl status treasury-tunnel  # cloudflared → treasury.stalane.com
 ```
 
-Then open <http://localhost:8765/index.html>.
+Open <https://treasury.stalane.com> in any browser, or locally at
+<http://127.0.0.1:8766/index.html>.
 
-You can also open `index.html` directly via `file://`, but serving over HTTP is
-more reliable and matches the verification workflow below.
+The app itself is a single static file, so any static server works for local
+development — Caddy, nginx, or even `python3 -m http.server`.
 
 **Refresh:** click **Refresh** in the header (or reload the page). Each panel
 has its own Retry button for transient failures.
@@ -178,13 +184,16 @@ seven panels reach the `ready` state with no JavaScript errors.
 > The `--user-agent` argument is **required**: the Fiscal Data API returns HTTP
 > 500 to Chrome's default headless UA. `--virtual-time-budget` lets the async
 > fetches and Chart.js render before the DOM is dumped.
+>
+> Cloudflare's **Rocket Loader** must be **off** on the zone — it defers
+> `<script>` execution past `DOMContentLoaded`, so the dashboard's boot never
+> fires and every panel stays `loading`. (Disabled zone-wide on stalane.com.)
 
 ```bash
-cd /us-treasury
-python3 -m http.server 8765 >/tmp/http.log 2>&1 & echo $! > /tmp/http.pid
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8766/index.html   # Caddy up?
 google-chrome --headless=new --disable-gpu --no-sandbox --virtual-time-budget=25000 \
   --user-agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36" \
-  --dump-dom "http://localhost:8765/index.html" > /tmp/dom.html 2>/tmp/chrome.err
+  --dump-dom "http://127.0.0.1:8766/index.html" > /tmp/dom.html 2>/tmp/chrome.err
 for p in debt mts rates cash fx auctions calendar; do
   grep -q "id=\"panel-$p\" data-state=\"ready\"" /tmp/dom.html && echo "PASS panel-$p ready" || echo "FAIL panel-$p"
 done
@@ -199,7 +208,6 @@ for p in ["panel-debt","panel-mts","panel-rates","panel-cash","panel-fx","panel-
     if 'data-state="error"' in re.search(rf'id="{p}"[^>]*', d).group(0):
         print("ERROR STATE:", p)
 EOF
-kill $(cat /tmp/http.pid) 2>/dev/null
 ```
 
 **Expected output:** seven `PASS panel-* ready` lines, `PASS last-updated`,
@@ -244,5 +252,8 @@ kill $(cat /tmp/http.pid) 2>/dev/null
 
 ## License
 
-Not licensed — this is a personal dashboard. Data remains the property of the
-U.S. Department of the Treasury (see the [Fiscal Data terms of use](https://fiscaldata.treasury.gov/)).
+MIT — see [LICENSE](./LICENSE). The dashboard code is free to use and modify
+under the terms of the MIT License.
+
+**Data:** the underlying data remains the property of the U.S. Department of the
+Treasury (see the [Fiscal Data terms of use](https://fiscaldata.treasury.gov/)).
