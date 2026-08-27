@@ -180,15 +180,10 @@ header .titles .sub {
 }
 .panel-subhead {
   color: #fff;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
-  letter-spacing: 0.4px;
-  margin: 16px 0 4px;
-}
-.subhead-asof {
-  font-weight: 400;
-  text-transform: none;
   letter-spacing: 0.3px;
+  margin: 16px 0 2px;
 }
 .panel .panel-body {
   flex: 1;
@@ -510,7 +505,7 @@ footer .disclaimer { color: #5c6b8f; font-size: 12px; line-height: 1.6; }
             <tbody></tbody>
           </table>
         </div>
-        <h3 class="panel-subhead">Interest Expense on the Public Debt <span class="subhead-asof" id="expense-asof"></span></h3>
+        <h3 class="panel-subhead">Interest Expense</h3>
         <div class="chart-wrap"><canvas id="chart-expense"></canvas></div>
         <div class="error-state">
           <p>Unable to load upcoming auction data.</p>
@@ -1018,7 +1013,8 @@ async function loadAuctions() {
       }, {
         scales: { x: { ticks: { maxTicksLimit: 6, maxRotation: 0 } } }
       });
-      document.getElementById("expense-asof").textContent = `· as of ${labels[labels.length - 1]}`;
+      document.querySelector('#panel-auctions .panel-asof').textContent +=
+        ` · interest as of ${labels[labels.length - 1]}`;
     }
     setPanelState(panelId, "ready");
     window.__pendingRetry = null;
